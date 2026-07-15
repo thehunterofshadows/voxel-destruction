@@ -1,7 +1,7 @@
 {
-  "bevelledVoxels": true,
-  "ambientOcclusion": true,
-  "bloom": true,
-  "dynamicShadows": true,
+  "bevelledVoxels": false,
+  "ambientOcclusion": false,
+  "bloom": false,
+  "dynamicShadows": false,
   "gpuParticles": false
 }

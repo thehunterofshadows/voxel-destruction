@@ -1,6 +1,7 @@
 // main.js — game bootstrap, camera rig, turn machine, <voxel-game> element
 import * as THREE from 'three';
-import { pass, bloom } from 'three/tsl';
+import { pass } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { World } from './world.js';
 import { Physics } from './physics.js';
 import { Weapons, COSTS } from './weapons.js';
@@ -114,8 +115,9 @@ class Game {
       try {
         const postProcessing = new THREE.PostProcessing(renderer);
         const scenePass = pass(this.scene, this.camera);
-        const bloomPass = bloom(scenePass, 1.1, 0.4, 0.85);
-        postProcessing.outputNode = bloomPass;
+        const scenePassColor = scenePass.getTextureNode('output');
+        const bloomPass = bloom(scenePassColor, 1.1, 0.4, 0.85);
+        postProcessing.outputNode = scenePassColor.add(bloomPass);
         this.postProcessing = postProcessing;
       } catch (e) {
         console.error('Failed to initialize PostProcessing bloom:', e);

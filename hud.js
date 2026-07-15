@@ -202,7 +202,11 @@ export class HUD {
 </div>`;
     this.el = {};
     for (const n of root.querySelectorAll('[data-round],[data-chips],[data-cash],[data-pops],[data-toast],[data-overlay],[data-card],[data-joy],[data-knob],[data-settings-btn],[data-settings-panel],[data-set-bevels],[data-set-ao],[data-set-bloom],[data-set-shadows],[data-set-gpu],[data-settings-close]')) {
-      for (const a of n.attributes) if (a.name.startsWith('data-')) this.el[a.name.slice(5)] = n;
+      for (const a of n.attributes) {
+        if (!a.name.startsWith('data-')) continue;
+        const key = a.name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+        this.el[key] = n;
+      }
     }
     const $ = (s) => root.querySelector(s);
     Object.assign(this.el, {
@@ -267,7 +271,7 @@ export class HUD {
       g.sfx.click();
       const s = g.graphicsSettings || {};
       this.el.setBevels.checked = s.bevelledVoxels !== false;
-      this.el.setAO.checked = s.ambientOcclusion !== false;
+      this.el.setAo.checked = s.ambientOcclusion !== false;
       this.el.setBloom.checked = s.bloom !== false;
       this.el.setShadows.checked = s.dynamicShadows !== false;
       this.el.setGpu.checked = !!s.gpuParticles;
@@ -298,7 +302,7 @@ export class HUD {
     };
 
     this.el.setBevels.onchange = () => updateSetting('bevelledVoxels', this.el.setBevels, 'Bevelled Voxels');
-    this.el.setAO.onchange = () => updateSetting('ambientOcclusion', this.el.setAO, 'Ambient Occlusion');
+    this.el.setAo.onchange = () => updateSetting('ambientOcclusion', this.el.setAo, 'Ambient Occlusion');
     this.el.setBloom.onchange = () => updateSetting('bloom', this.el.setBloom, 'Bloom Glow');
     this.el.setShadows.onchange = () => updateSetting('dynamicShadows', this.el.setShadows, 'Dynamic Shadows');
     this.el.setGpu.onchange = () => updateSetting('gpuParticles', this.el.setGpu, 'Density Particles');
