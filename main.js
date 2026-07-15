@@ -14,6 +14,13 @@ const PLAYER_META = [
   { name: 'PLAYER 4', color: '#6fa8ff' },
 ];
 
+// Scratch vectors to avoid allocations in tick()
+const _camNormalTarget = new THREE.Vector3();
+const _camNormalPos = new THREE.Vector3();
+const _camDozerTarget = new THREE.Vector3();
+const _camDozerPos = new THREE.Vector3();
+const _camDozerFwd = new THREE.Vector3();
+
 class Game {
   constructor(host, cfg) {
     this.host = host;
@@ -23,6 +30,7 @@ class Game {
     this._shake = 0;
     this._autoEnd = null;
     this.keys = {};
+    this.dozerCamFactor = 0;
   }
 
   async loadGraphicsSettings() {
@@ -280,6 +288,7 @@ class Game {
     this.state.player = 0;
     this.physics.reset();
     this.weapons.removeDozer();
+    this.dozerCamFactor = 0;
     this.world.buildMap(Math.floor(Math.random() * 5));
     this.state.phase = 'title';
     this.hud.refreshTurn();
@@ -291,6 +300,7 @@ class Game {
     this.state.phase = 'intro';
     this._autoEnd = null;
     this.weapons.removeDozer();
+    this.dozerCamFactor = 0;
     this.weapons.setMode('none');
     this.hud.setWeapon('none');
     this.hud.refreshTurn();
@@ -355,14 +365,42 @@ class Game {
     r.az += (targetAz - r.az) * Math.min(1, dt * 6);
     this._shake *= Math.exp(-dt * 3.2);
     const sh = this._shake;
-    const ox = (Math.random() - 0.5) * sh, oy = (Math.random() - 0.5) * sh, oz = (Math.random() - 0.5) * sh;
+    const ox = (Math.random() - 0.5) * sh;
+    const oy = (Math.random() - 0.5) * sh;
+    const oz = (Math.random() - 0.5) * sh;
+
+    // Update dozer camera factor
+    if (dz.active) {
+      this.dozerCamFactor = Math.min(1, this.dozerCamFactor + dt * 4.0); // 0.25 second transition
+    } else {
+      this.dozerCamFactor = Math.max(0, this.dozerCamFactor - dt * 4.0);
+    }
+
     const ce = Math.cos(r.elev), se = Math.sin(r.elev);
-    this.camera.position.set(
-      r.target.x + Math.sin(r.az) * ce * r.dist + ox,
-      r.target.y + se * r.dist + oy,
-      r.target.z + Math.cos(r.az) * ce * r.dist + oz
+    _camNormalPos.set(
+      r.target.x + Math.sin(r.az) * ce * r.dist,
+      r.target.y + se * r.dist,
+      r.target.z + Math.cos(r.az) * ce * r.dist
     );
-    this.camera.lookAt(r.target.x + ox * 0.5, r.target.y + oy * 0.5, r.target.z + oz * 0.5);
+    _camNormalTarget.copy(r.target);
+
+    if (this.dozerCamFactor > 0) {
+      const zoomScale = r.dist / 150;
+      const dozerDist = 38 * zoomScale;
+      const dozerHeight = 16 * zoomScale;
+
+      _camDozerFwd.set(-Math.sin(dz.yaw), 0, -Math.cos(dz.yaw));
+      _camDozerPos.copy(dz.pos)
+        .addScaledVector(_camDozerFwd, -dozerDist)
+        .add(new THREE.Vector3(0, dozerHeight, 0));
+      _camDozerTarget.copy(dz.pos).add(new THREE.Vector3(0, 3.5, 0));
+
+      _camNormalPos.lerp(_camDozerPos, this.dozerCamFactor);
+      _camNormalTarget.lerp(_camDozerTarget, this.dozerCamFactor);
+    }
+
+    this.camera.position.set(_camNormalPos.x + ox, _camNormalPos.y + oy, _camNormalPos.z + oz);
+    this.camera.lookAt(_camNormalTarget.x + ox * 0.5, _camNormalTarget.y + oy * 0.5, _camNormalTarget.z + oz * 0.5);
     if (this.postProcessing) {
       this.postProcessing.render();
     } else {
