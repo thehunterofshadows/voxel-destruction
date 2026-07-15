@@ -7,13 +7,13 @@ services:
     container_name: ${WEB_CONTAINER_NAME:-voxel-destruction-dev-web}
     restart: unless-stopped
     networks:
-      - default
       - edge
 
   test:
     image: node:22-alpine
     profiles:
       - tools
+    network_mode: none
     working_dir: /app
     volumes:
       - ./:/app:ro
@@ -22,6 +22,5 @@ services:
       - /app/scripts/validate.sh
 
 networks:
-  default: {}
   edge:
     external: true
