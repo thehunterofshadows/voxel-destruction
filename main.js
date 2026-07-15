@@ -15,6 +15,30 @@ const PLAYER_META = [
   { name: 'PLAYER 4', color: '#6fa8ff' },
 ];
 
+const GRAPHICS_SETTINGS_STORAGE_KEY = 'voxel_wreckers_graphics_settings';
+const GRAPHICS_SETTINGS_STORAGE_VERSION = 2;
+const GRAPHICS_SETTING_KEYS = [
+  'bevelledVoxels',
+  'ambientOcclusion',
+  'bloom',
+  'dynamicShadows',
+  'gpuParticles',
+];
+const SAFE_GRAPHICS_DEFAULTS = {
+  bevelledVoxels: false,
+  ambientOcclusion: false,
+  bloom: false,
+  dynamicShadows: false,
+  gpuParticles: false,
+};
+
+function applyGraphicsSettings(target, source) {
+  if (!source || typeof source !== 'object') return;
+  for (const key of GRAPHICS_SETTING_KEYS) {
+    if (typeof source[key] === 'boolean') target[key] = source[key];
+  }
+}
+
 // Scratch vectors to avoid allocations in tick()
 const _camNormalTarget = new THREE.Vector3();
 const _camNormalPos = new THREE.Vector3();
@@ -35,32 +59,55 @@ class Game {
   }
 
   async loadGraphicsSettings() {
-    const defaults = {
-      bevelledVoxels: true,
-      ambientOcclusion: true,
-      bloom: true,
-      dynamicShadows: true,
-      gpuParticles: false
-    };
+    const settings = { ...SAFE_GRAPHICS_DEFAULTS };
     try {
-      const res = await fetch('./settings.json');
+      const res = await fetch('./settings.json', { cache: 'no-store' });
       if (res.ok) {
         const json = await res.json();
-        Object.assign(defaults, json);
+        applyGraphicsSettings(settings, json);
       }
     } catch (e) {
       console.warn('Failed to load settings.json:', e);
     }
-    const local = localStorage.getItem('voxel_wreckers_graphics_settings');
-    if (local) {
+
+    let local = null;
+    try {
+      local = localStorage.getItem(GRAPHICS_SETTINGS_STORAGE_KEY);
+    } catch (e) {
+      console.warn('Failed to read graphics settings from localStorage:', e);
+    }
+
+    if (local !== null) {
       try {
-        const overrides = JSON.parse(local);
-        Object.assign(defaults, overrides);
+        const stored = JSON.parse(local);
+        if (stored?.version === GRAPHICS_SETTINGS_STORAGE_VERSION) {
+          applyGraphicsSettings(settings, stored.settings);
+        } else {
+          localStorage.removeItem(GRAPHICS_SETTINGS_STORAGE_KEY);
+        }
       } catch (e) {
-        console.warn('Failed to parse localStorage settings:', e);
+        console.warn('Failed to migrate graphics settings from localStorage:', e);
+        try {
+          localStorage.removeItem(GRAPHICS_SETTINGS_STORAGE_KEY);
+        } catch (removeError) {
+          console.warn('Failed to remove invalid graphics settings:', removeError);
+        }
       }
     }
-    this.graphicsSettings = defaults;
+    this.graphicsSettings = settings;
+  }
+
+  saveGraphicsSettings() {
+    const settings = {};
+    applyGraphicsSettings(settings, this.graphicsSettings);
+    try {
+      localStorage.setItem(GRAPHICS_SETTINGS_STORAGE_KEY, JSON.stringify({
+        version: GRAPHICS_SETTINGS_STORAGE_VERSION,
+        settings,
+      }));
+    } catch (e) {
+      console.warn('Failed to save graphics settings to localStorage:', e);
+    }
   }
 
   async init() {

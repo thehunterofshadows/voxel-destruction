@@ -286,7 +286,7 @@ export class HUD {
     const updateSetting = (key, checkbox, label) => {
       g.sfx.click();
       g.graphicsSettings[key] = checkbox.checked;
-      localStorage.setItem('voxel_wreckers_graphics_settings', JSON.stringify(g.graphicsSettings));
+      g.saveGraphicsSettings();
       
       if (key === 'bloom') {
         if (!checkbox.checked && g.postProcessing) {
