@@ -1,0 +1,27 @@
+name: ${COMPOSE_PROJECT_NAME:-voxel-destruction-dev}
+
+services:
+  web:
+    build:
+      context: .
+    container_name: ${WEB_CONTAINER_NAME:-voxel-destruction-dev-web}
+    restart: unless-stopped
+    networks:
+      - default
+      - edge
+
+  test:
+    image: node:22-alpine
+    profiles:
+      - tools
+    working_dir: /app
+    volumes:
+      - ./:/app:ro
+    command:
+      - sh
+      - /app/scripts/validate.sh
+
+networks:
+  default: {}
+  edge:
+    external: true

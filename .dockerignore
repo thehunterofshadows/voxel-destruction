@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+AGENTS.md
+CHANGELOG.md
+README.md
+promote.sh
+rebuild.sh
+setup.sh
+scripts
+.thumbnail
