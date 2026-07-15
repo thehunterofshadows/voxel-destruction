@@ -1,5 +1,6 @@
 // world.js — voxel buildings, maps, ground, sky, lighting
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export const WORLD_SCALE = 3;         // buildings are built at this voxel resolution → bigger & more detailed
 export const GROUND_SIZE = 96 * WORLD_SCALE;
@@ -216,7 +217,7 @@ const _tv2 = new THREE.Vector3();
 const SCORCH = new THREE.Color('#22150e');
 
 export class Building {
-  constructor(scene, grid, wx, wz, type) {
+  constructor(scene, grid, wx, wz, type, game) {
     this.type = type; this.label = TYPE_LABEL[type] || type;
     this.sx = grid.sx; this.sy = grid.sy; this.sz = grid.sz;
     this.grid = grid.d.slice();
@@ -230,7 +231,49 @@ export class Building {
     this.collapseAnim = null; this._lowY = 0;
     this.voxelToSlot = new Int32Array(this.grid.length).fill(-1);
     this.slotToVoxel = new Int32Array(total).fill(-1);
-    const mesh = new THREE.InstancedMesh(voxGeo, voxMat, total);
+
+    const settings = game ? (game.graphicsSettings || {}) : {};
+    const useBevels = settings.bevelledVoxels !== false && !(game && game.lowQuality);
+    const useAO = settings.ambientOcclusion !== false;
+
+    // Distinct PBR parameters per building type
+    let roughness = 0.85;
+    let metalness = 0.05;
+    if (type === 'watertower' || type === 'warehouse') {
+      metalness = 0.65;
+      roughness = 0.25;
+    } else if (type === 'factory') {
+      metalness = 0.35;
+      roughness = 0.45;
+    } else if (type === 'tower') {
+      roughness = 0.9;
+    }
+
+    const matOpts = { roughness, metalness };
+
+    // Procedural noise roughness map for visual granularity
+    if (useBevels) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 64, 64);
+      for (let i = 0; i < 150; i++) {
+        const x = Math.random() * 64, y = Math.random() * 64, w = 1 + Math.random() * 2;
+        ctx.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
+        ctx.fillRect(x, y, w, w);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(4, 4);
+      matOpts.roughnessMap = tex;
+    }
+
+    const mat = new THREE.MeshStandardMaterial(matOpts);
+    const geo = useBevels ? new RoundedBoxGeometry(1, 1, 1, 2, 0.05) : voxGeo;
+
+    const mesh = new THREE.InstancedMesh(geo, mat, total);
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
     let slot = 0;
     for (let y = 0; y < this.sy; y++) for (let z = 0; z < this.sz; z++) for (let x = 0; x < this.sx; x++) {
@@ -239,7 +282,24 @@ export class Building {
       mesh.setMatrixAt(slot, _m4);
       _c.set(VOX_COLORS[c]);
       const jit = 0.94 + Math.random() * 0.12;
-      const ao = 0.82 + 0.18 * Math.min(1, y / 3);
+
+      let ao = 1.0;
+      if (useAO) {
+        let neighbors = 0;
+        if (grid.g(x + 1, y, z)) neighbors++;
+        if (grid.g(x - 1, y, z)) neighbors++;
+        if (grid.g(x, y + 1, z)) neighbors++;
+        if (grid.g(x, y - 1, z)) neighbors++;
+        if (grid.g(x, y, z + 1)) neighbors++;
+        if (grid.g(x, y, z - 1)) neighbors++;
+        
+        const neighborFactor = 1.0 - (neighbors / 6) * 0.35;
+        const heightFactor = 0.85 + 0.15 * Math.min(1, y / 3);
+        ao = neighborFactor * heightFactor;
+      } else {
+        ao = 0.82 + 0.18 * Math.min(1, y / 3);
+      }
+
       _c.multiplyScalar(jit * ao);
       mesh.setColorAt(slot, _c);
       this.voxelToSlot[vi] = slot; this.slotToVoxel[slot] = vi;
@@ -351,8 +411,9 @@ export class Building {
 
 // ---- World ----
 export class World {
-  constructor(scene) {
+  constructor(scene, game) {
     this.scene = scene;
+    this.game = game;
     this.buildings = [];
     this.mapIndex = 0;
     this.mapName = '';
@@ -396,6 +457,7 @@ export class World {
     sc2.left = -62; sc2.right = 62; sc2.top = 62; sc2.bottom = -62; sc2.near = 5; sc2.far = 220;
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.6;
     scene.add(sun); scene.add(sun.target);
+    this.sun = sun; // save for dynamic adjustments
     const rim = new THREE.DirectionalLight(0xff7a9a, 0.65);
     rim.position.set(-40, 14, -50);
     scene.add(rim);
@@ -478,7 +540,7 @@ export class World {
       }
       if (bad) { console.warn('Map overlap, skipping', type, x, z); continue; }
       placed.push(box);
-      this.buildings.push(new Building(this.scene, grid, wx, wz, type));
+      this.buildings.push(new Building(this.scene, grid, wx, wz, type, this.game));
     }
     this.totalVoxels = this.buildings.reduce((a, b) => a + b.total, 0);
   }
@@ -616,6 +678,19 @@ export class World {
 
   // periodic structural pass: unsupported chunks break off and fall
   update(dt, game) {
+    // Dynamic shadow camera adjustment to keep shadows razor-sharp when zoomed in
+    if (this.sun && game && game.graphicsSettings && game.graphicsSettings.dynamicShadows) {
+      const size = Math.max(28, Math.min(85, game.rig.dist * 0.38));
+      const sc = this.sun.shadow.camera;
+      if (Math.abs(sc.left - (-size)) > 0.5) {
+        sc.left = -size; sc.right = size; sc.top = size; sc.bottom = -size;
+        sc.updateProjectionMatrix();
+      }
+      const t = game.rig.target;
+      this.sun.position.set(t.x + 55, t.y + 26, t.z + 35);
+      this.sun.target.position.copy(t);
+    }
+
     // active collapses tick every frame
     for (const b of this.buildings) {
       if (b.collapseAnim) this._tickCollapse(dt, game, b);

@@ -1,5 +1,6 @@
 // main.js — game bootstrap, camera rig, turn machine, <voxel-game> element
 import * as THREE from 'three';
+import { pass, bloom } from 'three/tsl';
 import { World } from './world.js';
 import { Physics } from './physics.js';
 import { Weapons, COSTS } from './weapons.js';
@@ -24,8 +25,39 @@ class Game {
     this.keys = {};
   }
 
+  async loadGraphicsSettings() {
+    const defaults = {
+      bevelledVoxels: true,
+      ambientOcclusion: true,
+      bloom: true,
+      dynamicShadows: true,
+      gpuParticles: false
+    };
+    try {
+      const res = await fetch('./settings.json');
+      if (res.ok) {
+        const json = await res.json();
+        Object.assign(defaults, json);
+      }
+    } catch (e) {
+      console.warn('Failed to load settings.json:', e);
+    }
+    const local = localStorage.getItem('voxel_wreckers_graphics_settings');
+    if (local) {
+      try {
+        const overrides = JSON.parse(local);
+        Object.assign(defaults, overrides);
+      } catch (e) {
+        console.warn('Failed to parse localStorage settings:', e);
+      }
+    }
+    this.graphicsSettings = defaults;
+  }
+
   async init() {
     const host = this.host;
+    await this.loadGraphicsSettings();
+
     // renderer (WebGPU with WebGL fallback)
     let renderer, canvas;
     const mkCanvas = () => {
@@ -69,8 +101,21 @@ class Game {
     this.camera = new THREE.PerspectiveCamera(36, 1, 1, 700);
     this.rig = { target: new THREE.Vector3(0, 8, 0), azIndex: 0, az: 0, elev: 0.6, dist: 150 };
 
+    // Setup WebGPU Post-processing Bloom
+    if (this.graphicsSettings.bloom && !lowQ) {
+      try {
+        const postProcessing = new THREE.PostProcessing(renderer);
+        const scenePass = pass(this.scene, this.camera);
+        const bloomPass = bloom(scenePass, 1.1, 0.4, 0.85);
+        postProcessing.outputNode = bloomPass;
+        this.postProcessing = postProcessing;
+      } catch (e) {
+        console.error('Failed to initialize PostProcessing bloom:', e);
+      }
+    }
+
     this.sfx = new SFX();
-    this.world = new World(this.scene);
+    this.world = new World(this.scene, this);
     this.physics = new Physics(this.scene, this);
     this.weapons = new Weapons(this);
     this.hud = new HUD(this, host.querySelector('[data-hud]'));
@@ -318,7 +363,11 @@ class Game {
       r.target.z + Math.cos(r.az) * ce * r.dist + oz
     );
     this.camera.lookAt(r.target.x + ox * 0.5, r.target.y + oy * 0.5, r.target.z + oz * 0.5);
-    this.renderer.render(this.scene, this.camera);
+    if (this.postProcessing) {
+      this.postProcessing.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }
 

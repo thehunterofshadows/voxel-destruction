@@ -50,6 +50,9 @@ export class Physics {
     this.clusters = [];
     this.rubble = []; // slots, oldest first
 
+    const settings = game ? (game.graphicsSettings || {}) : {};
+    const useBloom = settings.bloom !== false && !game.lowQuality;
+
     // ---- dust pool ----
     const duMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false });
     this.dustMesh = new THREE.InstancedMesh(boxGeo, duMat, DUST_CAP);
@@ -66,8 +69,9 @@ export class Physics {
     // ---- shockwaves ----
     this.waves = [];
     const wGeo = new THREE.RingGeometry(0.82, 1, 40);
+    const wColor = useBloom ? new THREE.Color('#ffd9a0').multiplyScalar(4.0) : new THREE.Color('#ffd9a0');
     for (let i = 0; i < 5; i++) {
-      const m = new THREE.Mesh(wGeo, new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+      const m = new THREE.Mesh(wGeo, new THREE.MeshBasicMaterial({ color: wColor, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
       m.rotation.x = -Math.PI / 2;
       m.visible = false;
       scene.add(m);
@@ -86,6 +90,7 @@ export class Physics {
       scene.add(m);
       this.craters.push({ mesh: m, life: 0 });
     }
+    this.settings = settings; // store for updates
   }
 
   reset() {
@@ -163,7 +168,11 @@ export class Physics {
 
   spawnDust(pos, count, opts = {}) {
     const ex = this.game.cfg.explosiveness ?? 1;
-    count = Math.round(count * ex);
+    let multiplier = 1.0;
+    if (this.game.graphicsSettings && this.game.graphicsSettings.gpuParticles) {
+      multiplier = 1.8;
+    }
+    count = Math.round(count * ex * multiplier);
     if (count < 1) return;
     const spread = opts.spread ?? 1.6;
     const up = (opts.up ?? 5) * (0.6 + 0.4 * ex);

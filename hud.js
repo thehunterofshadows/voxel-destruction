@@ -95,6 +95,26 @@ const CSS = `
   .vg-panel{bottom:80px}
   .vg-cam button{width:40px;height:40px}
 }
+.vg-settings-btn{position:absolute;left:10px;top:10px;width:44px;height:44px;border-radius:12px;
+  background:var(--panel);border:1px solid rgba(255,179,107,.25);font-size:20px;line-height:1;
+  backdrop-filter:blur(6px);pointer-events:auto;display:flex;align-items:center;justify-content:center}
+.vg-settings-btn:active{background:rgba(255,179,107,.3)}
+.vg-settings-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,90%);
+  background:var(--panel);backdrop-filter:blur(10px);border:2px solid rgba(255,179,107,.4);border-radius:16px;
+  padding:18px;pointer-events:auto;display:none;z-index:15}
+.vg-settings-panel.show{display:block}
+.vg-settings-title{font-family:Bungee,Rubik,sans-serif;font-size:16px;color:var(--accent);margin:0 0 12px;text-align:center;letter-spacing:.05em}
+.vg-settings-row{display:flex;justify-content:space-between;align-items:center;margin:12px 0}
+.vg-settings-row label{font-size:12.5px;font-weight:600;color:#f4dcb8}
+.vg-switch{position:relative;display:inline-block;width:42px;height:22px}
+.vg-switch input{opacity:0;width:0;height:0}
+.vg-slider{position:absolute;cursor:pointer;inset:0;background-color:rgba(255,255,255,0.18);border-radius:34px;transition:.2s}
+.vg-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:#fff;border-radius:50%;transition:.2s}
+.vg-switch input:checked + .vg-slider{background-color:var(--accent)}
+.vg-switch input:checked + .vg-slider:before{transform:translateX(20px)}
+.vg-settings-close{width:100%;margin-top:14px;padding:9px;border-radius:10px;font-weight:700;font-size:13px;
+  background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2)}
+.vg-settings-close:active{background:rgba(255,255,255,0.2)}
 `;
 
 export class HUD {
@@ -153,9 +173,35 @@ export class HUD {
   <div data-pops></div>
   <div class="vg-toast" data-toast></div>
   <div class="vg-overlay" data-overlay><div class="vg-card" data-card></div></div>
+  <button class="vg-settings-btn" data-settings-btn title="Graphics Settings">&#9881;</button>
+  <div class="vg-settings-panel" data-settings-panel>
+    <div class="vg-settings-title">GRAPHICS CONFIG</div>
+    <div class="vg-settings-row">
+      <label>Bevelled Voxels</label>
+      <label class="vg-switch"><input type="checkbox" data-set-bevels><span class="vg-slider"></span></label>
+    </div>
+    <div class="vg-settings-row">
+      <label>Ambient Occlusion</label>
+      <label class="vg-switch"><input type="checkbox" data-set-ao><span class="vg-slider"></span></label>
+    </div>
+    <div class="vg-settings-row">
+      <label>Bloom Glow</label>
+      <label class="vg-switch"><input type="checkbox" data-set-bloom><span class="vg-slider"></span></label>
+    </div>
+    <div class="vg-settings-row">
+      <label>Dynamic Shadows</label>
+      <label class="vg-switch"><input type="checkbox" data-set-shadows><span class="vg-slider"></span></label>
+    </div>
+    <div class="vg-settings-row">
+      <label>Density Particles</label>
+      <label class="vg-switch"><input type="checkbox" data-set-gpu><span class="vg-slider"></span></label>
+    </div>
+    <div class="vg-hint" style="font-size:10px;margin-top:10px;opacity:0.8">Note: Changing Bevels / AO requires starting a new map or reloading.</div>
+    <button class="vg-settings-close" data-settings-close>CLOSE</button>
+  </div>
 </div>`;
     this.el = {};
-    for (const n of root.querySelectorAll('[data-round],[data-chips],[data-cash],[data-pops],[data-toast],[data-overlay],[data-card],[data-joy],[data-knob]')) {
+    for (const n of root.querySelectorAll('[data-round],[data-chips],[data-cash],[data-pops],[data-toast],[data-overlay],[data-card],[data-joy],[data-knob],[data-settings-btn],[data-settings-panel],[data-set-bevels],[data-set-ao],[data-set-bloom],[data-set-shadows],[data-set-gpu],[data-settings-close]')) {
       for (const a of n.attributes) if (a.name.startsWith('data-')) this.el[a.name.slice(5)] = n;
     }
     const $ = (s) => root.querySelector(s);
@@ -215,6 +261,47 @@ export class HUD {
     const end = () => { this.joy.active = false; this.joy.f = 0; this.joy.s = 0; setKnob(0, 0); };
     joy.addEventListener('pointerup', end);
     joy.addEventListener('pointercancel', end);
+
+    // Settings menu bindings
+    this.el.settingsBtn.onclick = () => {
+      g.sfx.click();
+      const s = g.graphicsSettings || {};
+      this.el.setBevels.checked = s.bevelledVoxels !== false;
+      this.el.setAO.checked = s.ambientOcclusion !== false;
+      this.el.setBloom.checked = s.bloom !== false;
+      this.el.setShadows.checked = s.dynamicShadows !== false;
+      this.el.setGpu.checked = !!s.gpuParticles;
+      this.el.settingsPanel.classList.add('show');
+    };
+
+    this.el.settingsClose.onclick = () => {
+      g.sfx.click();
+      this.el.settingsPanel.classList.remove('show');
+    };
+
+    const updateSetting = (key, checkbox, label) => {
+      g.sfx.click();
+      g.graphicsSettings[key] = checkbox.checked;
+      localStorage.setItem('voxel_wreckers_graphics_settings', JSON.stringify(g.graphicsSettings));
+      
+      if (key === 'bloom') {
+        if (!checkbox.checked && g.postProcessing) {
+          g.postProcessing = null; // Disable rendering pass dynamically
+        }
+      }
+      
+      if (key === 'bevelledVoxels' || key === 'ambientOcclusion' || key === 'bloom') {
+        this.toast(`${label} changed. Reload to apply.`);
+      } else {
+        this.toast(`${label} updated!`);
+      }
+    };
+
+    this.el.setBevels.onchange = () => updateSetting('bevelledVoxels', this.el.setBevels, 'Bevelled Voxels');
+    this.el.setAO.onchange = () => updateSetting('ambientOcclusion', this.el.setAO, 'Ambient Occlusion');
+    this.el.setBloom.onchange = () => updateSetting('bloom', this.el.setBloom, 'Bloom Glow');
+    this.el.setShadows.onchange = () => updateSetting('dynamicShadows', this.el.setShadows, 'Dynamic Shadows');
+    this.el.setGpu.onchange = () => updateSetting('gpuParticles', this.el.setGpu, 'Density Particles');
   }
 
   _joyMove(e, setKnob) {
