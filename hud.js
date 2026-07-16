@@ -449,11 +449,11 @@ export class HUD {
     const g = this.game, w = g.weapons, s = g.state;
     const dz = w.dozer;
     const sig = [
-      w.busy, w.mode, w.strike.phase, dz.active, !!w.shell,
+      w.busy, w.mode, w.strike.phase, dz.active, w.mortarReady,
     ].join('|');
     if (sig !== this._sig) {
       this._sig = sig;
-      this.el.fire.disabled = !!w.shell;
+      this.el.fire.disabled = !w.mortarReady;
       this.el.done.disabled = w.busy;
       this.el.deploy.disabled = w.busy;
       this.el.deploy.style.display = '';

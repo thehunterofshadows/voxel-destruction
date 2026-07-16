@@ -6,6 +6,7 @@ const G = 26;
 const S = WORLD_SCALE;
 const SPD_MIN = 16;    // mortar muzzle speed range (tuned so shots cross the larger map)
 const SPD_SPAN = 86;
+const MORTAR_COOLDOWN = 0.25;
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 
@@ -19,14 +20,19 @@ export class Weapons {
     this.aim = { az: 0, angle: 58, power: 62 };
     this._buildMortar();
     this._buildPreview();
-    this.shell = null;
+    this.shells = [];
+    this.mortarCooldown = 0;
     this.strike = { phase: 'idle', A: new THREE.Vector3(), B: new THREE.Vector3(), plane: null, bombs: [], targets: [], s: 0, dir: new THREE.Vector3(), engine: null };
     this._buildStrikeViz();
     this.dozer = { active: false, mesh: null, t: 0, pos: new THREE.Vector3(), yaw: 0, spd: 0, input: { f: 0, s: 0 }, engine: null, puffT: 0, scoreT: 0 };
   }
 
   get busy() {
-    return !!this.shell || this.strike.phase === 'run' || this.dozer.active;
+    return this.shells.length > 0 || this.strike.phase === 'run' || this.dozer.active;
+  }
+
+  get mortarReady() {
+    return this.mortarCooldown <= 0;
   }
 
   setMode(m) {
@@ -68,14 +74,9 @@ export class Weapons {
     this.scene.add(g);
     this.mortarPos = new THREE.Vector3(0, 1.3 * S, 40 * S);
     this.mortarGroup = g;
-    // shell mesh
-    this.shellMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.4 * S, 10, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 0.4, metalness: 0.5 })
-    );
-    this.shellMesh.castShadow = true;
-    this.shellMesh.visible = false;
-    this.scene.add(this.shellMesh);
+    // shell mesh template geometry and material
+    this._shellGeo = new THREE.SphereGeometry(0.4 * S, 10, 8);
+    this._shellMat = new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 0.4, metalness: 0.5 });
   }
 
   _buildPreview() {
@@ -136,12 +137,17 @@ export class Weapons {
   }
 
   fireMortar() {
-    if (this.mode !== 'mortar' || this.shell) return false;
+    if (this.mode !== 'mortar' || this.mortarCooldown > 0) return false;
     if (!this.game.spend(COSTS.mortar)) return false;
     const { vel, muzzle } = this._aimVectors();
-    this.shell = { p: muzzle.clone(), v: vel, trailT: 0, whistled: false };
-    this.shellMesh.visible = true;
-    this.shellMesh.position.copy(muzzle);
+    const mesh = new THREE.Mesh(this._shellGeo, this._shellMat);
+    mesh.castShadow = true;
+    mesh.position.copy(muzzle);
+    this.scene.add(mesh);
+
+    this.shells.push({ p: muzzle.clone(), v: vel, trailT: 0, whistled: false, mesh });
+    this.mortarCooldown = MORTAR_COOLDOWN;
+
     this.game.sfx.thunk();
     this.game.shake(0.15);
     this.game.physics.spawnDust(muzzle, 5, { spread: 0.5, up: 3, out: 2, scale: 0.7 });
@@ -149,32 +155,38 @@ export class Weapons {
   }
 
   _updateShell(dt) {
-    const s = this.shell;
-    const speed = s.v.length();
-    const sub = Math.max(1, Math.ceil((speed * dt) / 0.3));
-    const h = dt / sub;
-    for (let i = 0; i < sub; i++) {
-      s.v.y -= G * h;
-      s.p.addScaledVector(s.v, h);
-      if (!s.whistled && s.v.y < 0) {
-        s.whistled = true;
-        this.game.sfx.whistle(Math.max(0.4, Math.min(1.6, (s.p.y / Math.abs(s.v.y)) * 1.1)));
+    for (let i = this.shells.length - 1; i >= 0; i--) {
+      const s = this.shells[i];
+      const speed = s.v.length();
+      const sub = Math.max(1, Math.ceil((speed * dt) / 0.3));
+      const h = dt / sub;
+      let exploded = false;
+      for (let k = 0; k < sub; k++) {
+        s.v.y -= G * h;
+        s.p.addScaledVector(s.v, h);
+        if (!s.whistled && s.v.y < 0) {
+          s.whistled = true;
+          this.game.sfx.whistle(Math.max(0.4, Math.min(1.6, (s.p.y / Math.abs(s.v.y)) * 1.1)));
+        }
+        if (s.p.y <= 0.15 || this.game.world.occupiedAt(s.p)) {
+          const at = s.p.clone();
+          at.y = Math.max(0.35, at.y);
+          this.scene.remove(s.mesh);
+          this.shells.splice(i, 1);
+          this.game.explode(at, 4.1 * S, this.game.state.player, 2);
+          exploded = true;
+          break;
+        }
       }
-      if (s.p.y <= 0.15 || this.game.world.occupiedAt(s.p)) {
-        const at = s.p.clone();
-        at.y = Math.max(0.35, at.y);
-        this.shell = null;
-        this.shellMesh.visible = false;
-        this.game.explode(at, 4.1 * S, this.game.state.player, 2);
-        return;
+      if (exploded) continue;
+
+      s.trailT += dt;
+      if (s.trailT > 0.03) {
+        s.trailT = 0;
+        this.game.physics.spawnDust(s.p, 1, { spread: 0.1, up: 0.3, out: 0.2, scale: 0.45 });
       }
+      s.mesh.position.copy(s.p);
     }
-    s.trailT += dt;
-    if (s.trailT > 0.03) {
-      s.trailT = 0;
-      this.game.physics.spawnDust(s.p, 1, { spread: 0.1, up: 0.3, out: 0.2, scale: 0.45 });
-    }
-    this.shellMesh.position.copy(s.p);
   }
 
   // ================= AIRSTRIKE =================
@@ -209,7 +221,7 @@ export class Weapons {
 
   onGround(type, pt) {
     if (!pt) return;
-    if (this.mode === 'mortar' && !this.shell && (type === 'down' || type === 'move')) {
+    if (this.mode === 'mortar' && (type === 'down' || type === 'move')) {
       this.aimAt(pt);
       return;
     }
@@ -481,8 +493,11 @@ export class Weapons {
 
   // ================= per-frame =================
   update(dt) {
-    if (this.mode === 'mortar' && !this.shell) this._updatePreview();
-    if (this.shell) this._updateShell(dt);
+    if (this.mortarCooldown > 0) {
+      this.mortarCooldown = Math.max(0, this.mortarCooldown - dt);
+    }
+    if (this.mode === 'mortar') this._updatePreview();
+    if (this.shells.length) this._updateShell(dt);
     if (this.strike.phase === 'run') this._updateStrike(dt);
     if (this.dozer.active) this._updateDozer(dt);
   }
