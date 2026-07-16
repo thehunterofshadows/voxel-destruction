@@ -18,6 +18,7 @@ const PLAYER_META = [
 const GRAPHICS_SETTINGS_STORAGE_KEY = 'voxel_wreckers_graphics_settings';
 const GRAPHICS_SETTINGS_STORAGE_VERSION = 2;
 const GRAPHICS_SETTING_KEYS = [
+  'softVoxelEdges',
   'bevelledVoxels',
   'ambientOcclusion',
   'bloom',
@@ -25,6 +26,7 @@ const GRAPHICS_SETTING_KEYS = [
   'gpuParticles',
 ];
 const SAFE_GRAPHICS_DEFAULTS = {
+  softVoxelEdges: false,
   bevelledVoxels: false,
   ambientOcclusion: false,
   bloom: false,
@@ -37,6 +39,12 @@ function applyGraphicsSettings(target, source) {
   for (const key of GRAPHICS_SETTING_KEYS) {
     if (typeof source[key] === 'boolean') target[key] = source[key];
   }
+}
+
+function normalizeGraphicsSettings(settings) {
+  // The lightweight normal-map effect wins configuration conflicts so a stale
+  // geometric-bevel preference cannot silently restore the expensive path.
+  if (settings.softVoxelEdges) settings.bevelledVoxels = false;
 }
 
 // Scratch vectors to avoid allocations in tick()
@@ -94,10 +102,12 @@ class Game {
         }
       }
     }
+    normalizeGraphicsSettings(settings);
     this.graphicsSettings = settings;
   }
 
   saveGraphicsSettings() {
+    normalizeGraphicsSettings(this.graphicsSettings);
     const settings = {};
     applyGraphicsSettings(settings, this.graphicsSettings);
     try {
@@ -253,7 +263,6 @@ class Game {
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
     window.addEventListener('keydown', (e) => {
-      if (e.repeat && !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'r', 'f'].includes(e.key)) { /* allow repeats for aim */ }
       this.keys[e.key.toLowerCase()] = true;
       const w = this.weapons;
       const k = e.key.toLowerCase();
@@ -264,14 +273,6 @@ class Game {
       if (k === '3') this.selectWeapon('dozer');
       if (this.state.phase !== 'playing') return;
       if (w.mode === 'mortar' && !w.dozer.active) {
-        let aimed = false;
-        if (k === 'arrowleft') { w.aim.az = Math.max(-75, w.aim.az - 1.5); aimed = true; }
-        if (k === 'arrowright') { w.aim.az = Math.min(75, w.aim.az + 1.5); aimed = true; }
-        if (k === 'arrowup') { w.aim.angle = Math.min(80, w.aim.angle + 1); aimed = true; }
-        if (k === 'arrowdown') { w.aim.angle = Math.max(20, w.aim.angle - 1); aimed = true; }
-        if (k === 'r') { w.aim.power = Math.min(100, w.aim.power + 1.5); aimed = true; }
-        if (k === 'f') { w.aim.power = Math.max(10, w.aim.power - 1.5); aimed = true; }
-        if (aimed) { this.hud.syncMortarSliders(); e.preventDefault(); }
         if (k === ' ' || k === 'enter') { w.fireMortar(); e.preventDefault(); }
       }
       if (w.dozer.active && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();

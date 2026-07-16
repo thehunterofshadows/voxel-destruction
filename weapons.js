@@ -235,7 +235,7 @@ export class Weapons {
     }
   }
 
-  // tap-to-aim: set bearing + power so the arc lands on pt (angle stays as set)
+  // Tap-to-aim computes the shot internally so firing needs no manual controls.
   aimAt(pt) {
     const dx = pt.x - this.mortarPos.x;
     const dz = pt.z - this.mortarPos.z;
@@ -246,7 +246,6 @@ export class Weapons {
     const s2 = Math.max(0.15, Math.sin(2 * th));
     const v = Math.sqrt((R * G) / s2);
     this.aim.power = Math.max(10, Math.min(100, ((v - SPD_MIN) / SPD_SPAN) * 100));
-    this.game.hud.syncMortarSliders();
   }
 
   _updateStrikeViz() {

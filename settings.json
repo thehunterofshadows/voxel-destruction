@@ -1,4 +1,5 @@
 {
+  "softVoxelEdges": true,
   "bevelledVoxels": false,
   "ambientOcclusion": true,
   "bloom": true,

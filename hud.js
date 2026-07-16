@@ -39,10 +39,6 @@ const CSS = `
   background:var(--panel);backdrop-filter:blur(8px);border:1px solid rgba(255,179,107,.25);border-radius:16px;
   padding:12px 14px;pointer-events:auto;display:none}
 .vg-panel.show{display:block}
-.vg-srow{display:grid;grid-template-columns:64px 1fr 44px;gap:10px;align-items:center;margin:6px 0}
-.vg-srow label{font-size:11px;font-weight:700;letter-spacing:.08em;color:#d9b88f}
-.vg-srow .val{font-size:12.5px;font-weight:700;text-align:right;color:#ffe9b8}
-.vg-srow input[type=range]{width:100%;accent-color:var(--accent);height:28px;margin:0;pointer-events:auto;touch-action:none}
 .vg-fire{width:100%;margin-top:8px;padding:12px;border-radius:12px;font-family:Bungee,Rubik,sans-serif;font-size:16px;letter-spacing:.06em;
   background:linear-gradient(180deg,#d4552f,#a13a20);border:2px solid rgba(255,170,110,.6);box-shadow:0 4px 18px rgba(212,85,47,.4)}
 .vg-fire:active{transform:translateY(1px)}
@@ -139,10 +135,6 @@ export class HUD {
     <button data-zout title="Zoom out">&minus;</button>
   </div>
   <div class="vg-panel" data-panel-mortar>
-    <div class="vg-hint" style="padding-bottom:6px">Tap the map to set the target &mdash; fine-tune below.</div>
-    <div class="vg-srow"><label>BEARING</label><input type="range" min="-75" max="75" value="0" step="1" data-az><span class="val" data-azv>0&deg;</span></div>
-    <div class="vg-srow"><label>ANGLE</label><input type="range" min="20" max="80" value="58" step="1" data-angle><span class="val" data-anglev>58&deg;</span></div>
-    <div class="vg-srow"><label>POWER</label><input type="range" min="10" max="100" value="62" step="1" data-power><span class="val" data-powerv>62</span></div>
     <button class="vg-fire" data-fire>FIRE &mdash; $300</button>
   </div>
   <div class="vg-panel" data-panel-strike>
@@ -169,7 +161,7 @@ export class HUD {
     <button class="vg-done" data-done>DONE</button>
   </div>
   <div class="vg-joy" data-joy><div class="knob" data-knob></div></div>
-  <div class="vg-keys">1/2/3 weapons &middot; arrows aim &middot; R/F power &middot; SPACE fire &middot; Q/E rotate &middot; scroll zoom</div>
+  <div class="vg-keys">1/2/3 weapons &middot; SPACE fire &middot; Q/E rotate &middot; scroll zoom</div>
   <div data-pops></div>
   <div class="vg-toast" data-toast></div>
   <div class="vg-overlay" data-overlay><div class="vg-card" data-card></div></div>
@@ -177,7 +169,11 @@ export class HUD {
   <div class="vg-settings-panel" data-settings-panel>
     <div class="vg-settings-title">GRAPHICS CONFIG</div>
     <div class="vg-settings-row">
-      <label>Bevelled Voxels</label>
+      <label>Soft Voxel Edges</label>
+      <label class="vg-switch"><input type="checkbox" data-set-soft-edges><span class="vg-slider"></span></label>
+    </div>
+    <div class="vg-settings-row">
+      <label>Geometric Bevels (Slow)</label>
       <label class="vg-switch"><input type="checkbox" data-set-bevels><span class="vg-slider"></span></label>
     </div>
     <div class="vg-settings-row">
@@ -196,12 +192,12 @@ export class HUD {
       <label>Density Particles</label>
       <label class="vg-switch"><input type="checkbox" data-set-gpu><span class="vg-slider"></span></label>
     </div>
-    <div class="vg-hint" style="font-size:10px;margin-top:10px;opacity:0.8">Note: Changing Bevels / AO requires starting a new map or reloading.</div>
+    <div class="vg-hint" style="font-size:10px;margin-top:10px;opacity:0.8">Note: Edge effects, AO, and bloom require starting a new map or reloading.</div>
     <button class="vg-settings-close" data-settings-close>CLOSE</button>
   </div>
 </div>`;
     this.el = {};
-    for (const n of root.querySelectorAll('[data-round],[data-chips],[data-cash],[data-pops],[data-toast],[data-overlay],[data-card],[data-joy],[data-knob],[data-settings-btn],[data-settings-panel],[data-set-bevels],[data-set-ao],[data-set-bloom],[data-set-shadows],[data-set-gpu],[data-settings-close]')) {
+    for (const n of root.querySelectorAll('[data-round],[data-chips],[data-cash],[data-pops],[data-toast],[data-overlay],[data-card],[data-joy],[data-knob],[data-settings-btn],[data-settings-panel],[data-set-soft-edges],[data-set-bevels],[data-set-ao],[data-set-bloom],[data-set-shadows],[data-set-gpu],[data-settings-close]')) {
       for (const a of n.attributes) {
         if (!a.name.startsWith('data-')) continue;
         const key = a.name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
@@ -212,8 +208,6 @@ export class HUD {
     Object.assign(this.el, {
       rotl: $('[data-rotl]'), rotr: $('[data-rotr]'), zin: $('[data-zin]'), zout: $('[data-zout]'),
       panelMortar: $('[data-panel-mortar]'), panelStrike: $('[data-panel-strike]'), panelDozer: $('[data-panel-dozer]'),
-      az: $('[data-az]'), angle: $('[data-angle]'), power: $('[data-power]'),
-      azv: $('[data-azv]'), anglev: $('[data-anglev]'), powerv: $('[data-powerv]'),
       fire: $('[data-fire]'), strikeHint: $('[data-strike-hint]'), strikeBtns: $('[data-strike-btns]'),
       strikeGo: $('[data-strike-go]'), strikeCancel: $('[data-strike-cancel]'),
       deploy: $('[data-deploy]'), dozerIdle: $('[data-dozer-idle]'), dozerLive: $('[data-dozer-live]'),
@@ -241,13 +235,6 @@ export class HUD {
       b.onclick = () => { g.sfx.click(); g.selectWeapon(b.dataset.w); };
     }
     this.el.done.onclick = () => { g.sfx.click(); g.endTurnRequest(); };
-    const aim = (k, disp, unit) => (e) => {
-      w().aim[k] = +e.target.value;
-      this.el[disp].textContent = e.target.value + unit;
-    };
-    this.el.az.oninput = aim('az', 'azv', '\u00b0');
-    this.el.angle.oninput = aim('angle', 'anglev', '\u00b0');
-    this.el.power.oninput = aim('power', 'powerv', '');
     this.el.fire.onclick = () => w().fireMortar();
     this.el.strikeGo.onclick = () => w().confirmStrike();
     this.el.strikeCancel.onclick = () => { w().cancelStrike(); };
@@ -270,6 +257,7 @@ export class HUD {
     this.el.settingsBtn.onclick = () => {
       g.sfx.click();
       const s = g.graphicsSettings || {};
+      this.el.setSoftEdges.checked = s.softVoxelEdges === true;
       this.el.setBevels.checked = s.bevelledVoxels !== false;
       this.el.setAo.checked = s.ambientOcclusion !== false;
       this.el.setBloom.checked = s.bloom !== false;
@@ -286,6 +274,15 @@ export class HUD {
     const updateSetting = (key, checkbox, label) => {
       g.sfx.click();
       g.graphicsSettings[key] = checkbox.checked;
+
+      if (checkbox.checked && key === 'softVoxelEdges') {
+        g.graphicsSettings.bevelledVoxels = false;
+        this.el.setBevels.checked = false;
+      } else if (checkbox.checked && key === 'bevelledVoxels') {
+        g.graphicsSettings.softVoxelEdges = false;
+        this.el.setSoftEdges.checked = false;
+      }
+
       g.saveGraphicsSettings();
       
       if (key === 'bloom') {
@@ -294,14 +291,15 @@ export class HUD {
         }
       }
       
-      if (key === 'bevelledVoxels' || key === 'ambientOcclusion' || key === 'bloom') {
+      if (key === 'softVoxelEdges' || key === 'bevelledVoxels' || key === 'ambientOcclusion' || key === 'bloom') {
         this.toast(`${label} changed. Reload to apply.`);
       } else {
         this.toast(`${label} updated!`);
       }
     };
 
-    this.el.setBevels.onchange = () => updateSetting('bevelledVoxels', this.el.setBevels, 'Bevelled Voxels');
+    this.el.setSoftEdges.onchange = () => updateSetting('softVoxelEdges', this.el.setSoftEdges, 'Soft Voxel Edges');
+    this.el.setBevels.onchange = () => updateSetting('bevelledVoxels', this.el.setBevels, 'Geometric Bevels');
     this.el.setAo.onchange = () => updateSetting('ambientOcclusion', this.el.setAo, 'Ambient Occlusion');
     this.el.setBloom.onchange = () => updateSetting('bloom', this.el.setBloom, 'Bloom Glow');
     this.el.setShadows.onchange = () => updateSetting('dynamicShadows', this.el.setShadows, 'Dynamic Shadows');
@@ -319,19 +317,11 @@ export class HUD {
     this.joy.f = -dy / max;
   }
 
-  syncMortarSliders() {
-    const a = this.game.weapons.aim;
-    this.el.az.value = a.az; this.el.azv.textContent = Math.round(a.az) + '\u00b0';
-    this.el.angle.value = a.angle; this.el.anglev.textContent = Math.round(a.angle) + '\u00b0';
-    this.el.power.value = a.power; this.el.powerv.textContent = Math.round(a.power);
-  }
-
   setWeapon(m) {
     for (const b of this.el.wbtns) b.classList.toggle('sel', b.dataset.w === m);
     this.el.panelMortar.classList.toggle('show', m === 'mortar');
     this.el.panelStrike.classList.toggle('show', m === 'strike');
     this.el.panelDozer.classList.toggle('show', m === 'dozer');
-    if (m === 'mortar') this.syncMortarSliders();
   }
 
   refreshScores() {

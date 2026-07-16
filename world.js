@@ -208,13 +208,72 @@ export const MAPS = [
 
 // ---- Building instance ----
 const voxGeo = new THREE.BoxGeometry(1, 1, 1);
-const voxMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05 });
+let roundedVoxGeo = null;
+let bevelRoughnessMap = null;
+let softEdgeNormalMap = null;
 const _m4 = new THREE.Matrix4();
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
 const _tv = new THREE.Vector3();
 const _tv2 = new THREE.Vector3();
 const SCORCH = new THREE.Color('#22150e');
+
+function getRoundedVoxGeometry() {
+  if (!roundedVoxGeo) roundedVoxGeo = new RoundedBoxGeometry(1, 1, 1, 2, 0.05);
+  return roundedVoxGeo;
+}
+
+function getBevelRoughnessMap() {
+  if (bevelRoughnessMap) return bevelRoughnessMap;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 150; i++) {
+    const x = Math.random() * 64, y = Math.random() * 64, w = 1 + Math.random() * 2;
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
+    ctx.fillRect(x, y, w, w);
+  }
+  bevelRoughnessMap = new THREE.CanvasTexture(canvas);
+  bevelRoughnessMap.wrapS = THREE.RepeatWrapping;
+  bevelRoughnessMap.wrapT = THREE.RepeatWrapping;
+  bevelRoughnessMap.repeat.set(4, 4);
+  return bevelRoughnessMap;
+}
+
+function getSoftEdgeNormalMap() {
+  if (softEdgeNormalMap) return softEdgeNormalMap;
+  const size = 64;
+  const edgeWidth = 0.12;
+  const edgeStrength = 0.65;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(size, size);
+
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const u = (x + 0.5) / size;
+    const v = 1 - (y + 0.5) / size;
+    const nx = u < edgeWidth ? -(1 - u / edgeWidth)
+      : u > 1 - edgeWidth ? (u - (1 - edgeWidth)) / edgeWidth : 0;
+    const ny = v < edgeWidth ? -(1 - v / edgeWidth)
+      : v > 1 - edgeWidth ? (v - (1 - edgeWidth)) / edgeWidth : 0;
+    const bx = nx * edgeStrength;
+    const by = ny * edgeStrength;
+    const invLength = 1 / Math.hypot(bx, by, 1);
+    const offset = (y * size + x) * 4;
+    image.data[offset] = Math.round((bx * invLength * 0.5 + 0.5) * 255);
+    image.data[offset + 1] = Math.round((by * invLength * 0.5 + 0.5) * 255);
+    image.data[offset + 2] = Math.round((invLength * 0.5 + 0.5) * 255);
+    image.data[offset + 3] = 255;
+  }
+
+  ctx.putImageData(image, 0, 0);
+  softEdgeNormalMap = new THREE.CanvasTexture(canvas);
+  softEdgeNormalMap.colorSpace = THREE.NoColorSpace;
+  return softEdgeNormalMap;
+}
 
 export class Building {
   constructor(scene, grid, wx, wz, type, game) {
@@ -233,7 +292,9 @@ export class Building {
     this.slotToVoxel = new Int32Array(total).fill(-1);
 
     const settings = game ? (game.graphicsSettings || {}) : {};
-    const useBevels = settings.bevelledVoxels !== false && !(game && game.lowQuality);
+    const lowQuality = !!(game && game.lowQuality);
+    const useSoftEdges = settings.softVoxelEdges === true && !lowQuality;
+    const useBevels = settings.bevelledVoxels === true && !useSoftEdges && !lowQuality;
     const useAO = settings.ambientOcclusion !== false;
 
     // Distinct PBR parameters per building type
@@ -251,27 +312,11 @@ export class Building {
 
     const matOpts = { roughness, metalness };
 
-    // Procedural noise roughness map for visual granularity
-    if (useBevels) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 64; canvas.height = 64;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 64, 64);
-      for (let i = 0; i < 150; i++) {
-        const x = Math.random() * 64, y = Math.random() * 64, w = 1 + Math.random() * 2;
-        ctx.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
-        ctx.fillRect(x, y, w, w);
-      }
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(4, 4);
-      matOpts.roughnessMap = tex;
-    }
+    if (useSoftEdges) matOpts.normalMap = getSoftEdgeNormalMap();
+    if (useBevels) matOpts.roughnessMap = getBevelRoughnessMap();
 
     const mat = new THREE.MeshStandardMaterial(matOpts);
-    const geo = useBevels ? new RoundedBoxGeometry(1, 1, 1, 2, 0.05) : voxGeo;
+    const geo = useBevels ? getRoundedVoxGeometry() : voxGeo;
 
     const mesh = new THREE.InstancedMesh(geo, mat, total);
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
@@ -293,11 +338,11 @@ export class Building {
         if (grid.g(x, y, z + 1)) neighbors++;
         if (grid.g(x, y, z - 1)) neighbors++;
         
-        const neighborFactor = 1.0 - (neighbors / 6) * 0.35;
-        const heightFactor = 0.85 + 0.15 * Math.min(1, y / 3);
+        const neighborFactor = 1.0 - (neighbors / 6) * 0.18;
+        const heightFactor = 0.93 + 0.07 * Math.min(1, y / 3);
         ao = neighborFactor * heightFactor;
       } else {
-        ao = 0.82 + 0.18 * Math.min(1, y / 3);
+        ao = 1.0;
       }
 
       _c.multiplyScalar(jit * ao);
@@ -308,6 +353,7 @@ export class Building {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     this.mesh = mesh;
+    this.material = mat;
     scene.add(mesh);
     this.aabb = new THREE.Box3(
       new THREE.Vector3(this.origin.x, 0, this.origin.z),
@@ -406,7 +452,11 @@ export class Building {
     }
     return comps;
   }
-  dispose(scene) { scene.remove(this.mesh); this.mesh.dispose(); }
+  dispose(scene) {
+    scene.remove(this.mesh);
+    this.mesh.dispose();
+    this.material.dispose();
+  }
 }
 
 // ---- World ----
@@ -447,7 +497,7 @@ export class World {
 
 
     // lights
-    const hemi = new THREE.HemisphereLight(0x8a6fb8, 0x6b4526, 1.15);
+    const hemi = new THREE.HemisphereLight(0x8a6fb8, 0x6b4526, 1.35);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffb070, 2.6);
     sun.position.set(55, 26, 35);

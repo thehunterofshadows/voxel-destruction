@@ -31,6 +31,28 @@ The watcher validation command is exactly:
 docker compose run --rm --no-deps test
 ```
 
+## Required dev workflow
+
+After every code, asset, or documentation change:
+
+1. Run the watcher validation command:
+
+   ```bash
+   docker compose run --rm --no-deps test
+   ```
+
+2. Run:
+
+   ```bash
+   ./rebuild.sh
+   ```
+
+3. Verify the updated files are being served at
+   `https://dev-destruction.fireorbooty.com`.
+
+Do not report a change as complete until validation, rebuild, and dev-site
+verification have succeeded.
+
 ## Project constraints
 
 - The game is a static browser app. `index.html` boots the custom DC component,
